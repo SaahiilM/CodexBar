@@ -268,6 +268,50 @@ void DesktopController::refreshSessions(bool force) {
     deadline->start(30000);
 }
 
+
+// How much of the window is used when it resets, assuming the current rate.
+// Returns a negative value when the window cannot be projected.
+static double projectedUsage(const QVariantMap &window) {
+    const auto minutes = window.value("minutes").toInt();
+    if (minutes <= 0) return -1;
+    const auto resetsAt = window.value("resetsAt").toString();
+    const auto reset = QDateTime::fromString(resetsAt, Qt::ISODate);
+    if (!reset.isValid()) return -1;
+    const auto now = QDateTime::currentDateTimeUtc();
+    if (now >= reset) return -1;
+    const auto start = reset.addSecs(-minutes * 60);
+    const auto elapsed = start.secsTo(now);
+    // The window has to have started before it can be projected.
+    if (elapsed <= 0) return -1;
+    const auto used = 100.0 - window.value("remaining").toDouble();
+    const auto left = now.secsTo(reset);
+    if (left <= 0) return -1;
+    const auto projected = used + (used / elapsed) * left;
+    return qBound(0.0, projected, 200.0);
+}
+
+// How far through the working days a weekly window is, in percent. Only the
+// working days count towards the expected burn.
+static double workdayProgress(const QVariantMap &window, int workDays) {
+    if (workDays <= 0) return -1;
+    const auto minutes = window.value("minutes").toInt();
+    if (minutes < 7 * 24 * 60) return -1;
+    const auto resetsAt = window.value("resetsAt").toString();
+    const auto reset = QDateTime::fromString(resetsAt, Qt::ISODate);
+    if (!reset.isValid()) return -1;
+    const auto start = reset.addSecs(-minutes * 60);
+    const auto now = QDateTime::currentDateTimeUtc();
+    double total = 0;
+    double elapsed = 0;
+    for (auto day = start; day < reset; day = day.addDays(1)) {
+        if (static_cast<int>(day.date().dayOfWeek()) > workDays) continue;
+        total += 1;
+        if (day <= now) elapsed += 1;
+    }
+    if (total <= 0) return -1;
+    return qBound(0.0, elapsed / total * 100.0, 100.0);
+}
+
 void DesktopController::probe(QProcess &process, const QStringList &command, bool cost) {
     process.disconnect(this);
     auto output = std::make_shared<QByteArray>();
@@ -467,6 +511,11 @@ QJsonObject DesktopController::snapshot() {
             window["displayValue"] = m_settings.value("quotaDisplay") == "used" ? 100 - remaining : remaining;
             window["displaySuffix"] = m_settings.value("quotaDisplay") == "used" ? "used" : "left";
             window["warning"] = m_settings.value("warningColors").toBool() && remaining <= m_settings.value("notifyThreshold").toInt();
+            // The macOS app projects the usage at reset and marks the working-day
+            // progress of a weekly window; both are derived from the window itself.
+            const auto projection = projectedUsage(window);
+            window["projected"] = projection;
+            window["workdayPercent"] = workdayProgress(window, m_settings.value("weeklyProgressWorkDays").toInt());
             // This model contains no identity; display fields keep adapters consistent with native windows.
             window["resetText"] = call(m_usageModel, "resetText",
                 {window.value("resetsAt").toString(), double(QDateTime::currentMSecsSinceEpoch()), m_settings.value("resetDisplay").toString()}).toString();

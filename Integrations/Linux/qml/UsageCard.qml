@@ -114,6 +114,21 @@ Frame {
                         Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                     }
                 }
+                // The working-day tick shows how far through the working days the
+                // weekly quota is, the way the macOS app marks it.
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 3
+                    visible: modelData.workdayPercent !== undefined && modelData.workdayPercent >= 0
+                    color: "transparent"
+                    Rectangle {
+                        width: parent.width * (modelData.workdayPercent / 100)
+                        height: parent.height
+                        radius: 1.5
+                        color: Qt.alpha(root.accent, 0.55)
+                        visible: modelData.workdayPercent > 0
+                    }
+                }
                 Flow {
                     Layout.fillWidth: true
                     spacing: 6
@@ -127,6 +142,19 @@ Frame {
                             text: Usage.resetText(modelData.resetsAt, clock.now, desktop.settings.resetDisplay)
                             font.pixelSize: 11
                             color: root.accent
+                        }
+                    }
+                    Rectangle {
+                        visible: modelData.projected !== undefined && modelData.projected >= 0
+                        radius: 9; height: 20; width: projectedLabel.implicitWidth + 16
+                        color: Qt.alpha(modelData.projected >= 100 ? "#d97732" : root.accent, 0.14)
+                        Label {
+                            id: projectedLabel
+                            anchors.centerIn: parent
+                            text: modelData.projected >= 0 ?
+                                (modelData.projected >= 100 ? "projected to run out" : "projected " + modelData.projected.toFixed(0) + "% at reset") : ""
+                            font.pixelSize: 11
+                            color: modelData.projected >= 100 ? "#d97732" : root.accent
                         }
                     }
                     Rectangle {

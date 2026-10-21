@@ -199,6 +199,21 @@ else:
         self.assertEqual(overview['providers'], 1)
         self.assertGreater(overview['highest'], 0)
 
+    def test_the_projection_and_workday_tick_reach_the_windows(self):
+        # A window that started four hours ago and resets in an hour.
+        reset = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat().replace('+00:00', 'Z')
+        (self.root / 'state.json').write_text(json.dumps({'usage': {
+            'primary': {'usedPercent': 40, 'windowMinutes': 300, 'resetsAt': reset}}}))
+        self.client('--refresh')
+        value = self.wait_for(lambda value: value.get('entries') and not value['busy']
+                              and value['entries'][0]['windows'][0].get('projected', -1) >= 0)
+        window = value['entries'][0]['windows'][0]
+        # The window resets in the future, so the projection is a real number.
+        self.assertGreaterEqual(window['projected'], 0)
+        self.assertLessEqual(window['projected'], 200)
+        # A five hour window has no working-day progress.
+        self.assertEqual(window['workdayPercent'], -1)
+
     def test_preferences_validation_and_atomic_save(self):
         self.assertFalse(self.client('--configure', '{"provider":"bad;command"}', check=False)['ok'])
         self.assertTrue(self.client('--configure', '{"provider":"claude","refreshSeconds":900,"showIdentity":true}')['ok'])
