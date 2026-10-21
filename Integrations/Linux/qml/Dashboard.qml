@@ -62,6 +62,10 @@ ApplicationWindow {
             ColumnLayout {
                 width: scroll.availableWidth
                 spacing: 16
+                Overview {
+                    visible: window.selectedTab === 0
+                    Layout.fillWidth: true
+                }
                 Repeater {
                     model: window.selectedTab === 0 ? desktop.entries : []
                     UsageCard { required property var modelData; entry: modelData }
