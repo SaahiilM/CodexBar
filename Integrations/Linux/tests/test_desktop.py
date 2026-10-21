@@ -33,6 +33,7 @@ with (root/'calls.jsonl').open('a') as log: log.write(json.dumps({'pid':os.getpi
 time.sleep(state.get('delay',0))
 if state.get('invalid') or state.get('failProvider')==provider: print('broken'); sys.exit(1)
 if args[0]=='sessions':
+ if state.get('failSessions'): print('broken'); sys.exit(1)
  print(json.dumps([{'id':'session-1','provider':'claude','state':'active','projectName':'demo',
  'cwd':'/tmp/demo','pid':4242,'lastActivityAt':'2026-10-21T12:00:00Z'}])); sys.exit(0)
 if args[0]=='cost':
@@ -111,12 +112,63 @@ else:
         arguments = [json.loads(line)['args'][0] for line in calls.read_text().splitlines()]
         self.assertIn('sessions', arguments)
 
+    def test_existing_settings_keep_the_first_provider_in_the_tray(self):
+        # A linux.json written before the tray source preference existed must not
+        # switch the tray to another provider behind the user's back.
+        (self.root / 'config/codexbar').mkdir(parents=True, exist_ok=True)
+        (self.root / 'config/codexbar/linux.json').write_text(json.dumps({'provider': 'codex'}))
+        self.client('--quit', check=False)
+        self.process.wait(timeout=4)
+        self.process = subprocess.Popen([str(APP), '--background', '--no-tray', '--cli', str(self.fake)],
+                                        env=self.environment, stdout=self.log, stderr=self.log)
+        value = self.wait_for(lambda value: value.get('overview', {}).get('providers') == 1)
+        self.assertEqual(value['trayIconSource'], 'first')
+        self.assertEqual(value['trayLines'], ['Codex — 5 hour 60% left'])
+
+    def test_tray_lines_state_used_or_left(self):
+        self.client('--configure', '{"quotaDisplay":"used"}')
+        value = self.wait_for(lambda value: value.get('trayLines'))
+        self.assertEqual(value['trayLines'], ['Codex — 5 hour 40% used'])
+
+    def test_a_failed_session_scan_keeps_the_last_known_list(self):
+        self.client('--sessions')
+        value = self.wait_for(lambda value: value.get('sessions'))
+        self.assertEqual(len(value['sessions']), 1)
+        self.assertEqual(value['sessionsError'], '')
+        # A failing scan must not empty the list or pass a failure off as "none".
+        (self.root / 'state.json').write_text(json.dumps({'failSessions': True}))
+        self.client('--refresh-sessions')
+        value = self.wait_for(lambda value: value.get('sessionsError'))
+        self.assertEqual(len(value['sessions']), 1)
+        self.assertIn('could not be refreshed', value['sessionsError'])
+
+    def test_the_overview_keeps_a_parsable_reset_time(self):
+        value = self.wait_for(lambda value: value.get('overview', {}).get('nextReset'))
+        overview = value['overview']
+        self.assertTrue(overview['nextReset'])
+        # The reset helper parses this string again, so it has to stay a date string.
+        self.assertRegex(overview['nextReset'], r'^\d{4}-\d{2}-\d{2}T')
+        self.assertEqual(overview['providers'], 1)
+        self.assertGreater(overview['highest'], 0)
+
     def test_tray_icon_source_preference_is_validated(self):
         self.assertFalse(self.client('--configure', '{"trayIconSource":"nonsense"}', check=False)['ok'])
         self.assertTrue(self.client('--configure', '{"trayIconSource":"first"}')['ok'])
         settings = json.loads((self.root / 'config/codexbar/linux.json').read_text())
         self.assertEqual(settings['trayIconSource'], 'first')
         self.assertFalse(self.client('--configure', '{"trayStyle":"nonsense"}', check=False)['ok'])
+
+    def test_existing_settings_keep_the_first_provider_in_the_tray(self):
+        # A linux.json written before the tray source preference existed must not
+        # switch the tray to another provider behind the user's back.
+        (self.root / 'config/codexbar').mkdir(parents=True, exist_ok=True)
+        (self.root / 'config/codexbar/linux.json').write_text(json.dumps({'provider': 'codex'}))
+        self.client('--quit', check=False)
+        self.process.wait(timeout=4)
+        self.process = subprocess.Popen([str(APP), '--background', '--no-tray', '--cli', str(self.fake)],
+                                        env=self.environment, stdout=self.log, stderr=self.log)
+        value = self.wait_for(lambda value: value.get('overview', {}).get('providers') == 1)
+        self.assertEqual(value['trayIconSource'], 'first')
 
     def test_preferences_validation_and_atomic_save(self):
         self.assertFalse(self.client('--configure', '{"provider":"bad;command"}', check=False)['ok'])
