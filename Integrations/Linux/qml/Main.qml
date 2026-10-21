@@ -10,8 +10,8 @@ QtObject {
         function onWindowRequested(page) {
             var target = page === "settings" ? root.preferences :
                 page === "quick-view" ? root.quickView : root.dashboard;
-            if (page === "usage" || page === "spending")
-                root.dashboard.selectedTab = page === "spending" ? 1 : 0;
+            if (page === "usage" || page === "spending" || page === "sessions")
+                root.dashboard.selectedTab = page === "spending" ? 2 : (page === "sessions" ? 1 : 0);
             target.show();
             target.raise();
             target.requestActivate();

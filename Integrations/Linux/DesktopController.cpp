@@ -201,6 +201,57 @@ void DesktopController::refreshCosts() {
     probe(m_cost, {m_settings.value("executable").toString(), "cost", "--provider", "both", "--format", "json", "--days", "30"}, true);
 }
 
+void DesktopController::refreshSessions() {
+    if (m_sessionProcess.state() != QProcess::NotRunning) return;
+    const auto command = QStringList{m_settings.value("executable").toString(), "sessions", "--json-v2"};
+    auto output = std::make_shared<QByteArray>();
+    auto complete = std::make_shared<bool>(false);
+    const int generation = m_generation;
+    auto *deadline = new QTimer(&m_sessionProcess);
+    deadline->setSingleShot(true);
+    connect(deadline, &QTimer::timeout, &m_sessionProcess, [this] { stop(m_sessionProcess); });
+    auto finish = [this, output, complete, generation, deadline](bool failed) {
+        if (*complete) return;
+        *complete = true; deadline->stop(); deadline->deleteLater();
+        if (generation != m_generation) return;
+        output->append(m_sessionProcess.readAllStandardOutput());
+        QVariantList sessions;
+        if (!failed && output->size() <= 4 * 1024 * 1024) {
+            QJsonParseError parse;
+            const auto document = QJsonDocument::fromJson(*output, &parse);
+            if (parse.error == QJsonParseError::NoError && document.isArray()) {
+                for (const auto &item : document.array()) {
+                    if (!item.isObject()) continue;
+                    const auto session = item.toObject();
+                    sessions.append(QVariantMap{
+                        {"id", session.value("id").toString()},
+                        {"provider", session.value("provider").toString()},
+                        {"state", session.value("state").toString()},
+                        {"project", session.value("projectName").toString()},
+                        {"cwd", session.value("cwd").toString()},
+                        {"pid", session.value("pid").toInt()},
+                        {"lastActivity", session.value("lastActivityAt").toString()}});
+                }
+            }
+        }
+        m_sessions = sessions;
+        m_sessionsUpdated = QDateTime::currentMSecsSinceEpoch();
+        emit changed();
+    };
+    connect(&m_sessionProcess, &QProcess::readyReadStandardOutput, this, [this, output] {
+        output->append(m_sessionProcess.readAllStandardOutput());
+        if (output->size() > 4 * 1024 * 1024) stop(m_sessionProcess);
+    });
+    connect(&m_sessionProcess, &QProcess::readyReadStandardError, this, [this] { m_sessionProcess.readAllStandardError(); });
+    connect(&m_sessionProcess, &QProcess::finished, this, [finish](int, QProcess::ExitStatus status) { finish(status != QProcess::NormalExit); });
+    connect(&m_sessionProcess, &QProcess::errorOccurred, this, [finish](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart) finish(true);
+    });
+    m_sessionProcess.setChildProcessModifier([] { ::setsid(); });
+    m_sessionProcess.start(command.first(), command.mid(1));
+    deadline->start(30000);
+}
+
 void DesktopController::probe(QProcess &process, const QStringList &command, bool cost) {
     process.disconnect(this);
     auto output = std::make_shared<QByteArray>();
@@ -297,6 +348,8 @@ void DesktopController::copySummary() {
 
 void DesktopController::showWindow(const QString &page) {
     if (page == "spending" && QDateTime::currentMSecsSinceEpoch() - m_costUpdated > 300000) refreshCosts();
+    // Agent sessions are opt-in: they are only listed when the tab is opened.
+    if (page == "sessions" && QDateTime::currentMSecsSinceEpoch() - m_sessionsUpdated > 60000) refreshSessions();
     if ((page == "usage" || page == "quick-view") && m_settings.value("refreshOnOpen").toBool()) refresh();
     emit windowRequested(page);
 }
@@ -352,6 +405,18 @@ QJsonObject DesktopController::snapshot() const {
             {"extraUsage", QJsonValue::fromVariant(row.value("extraUsage"))},
             {"resetCredits", QJsonValue::fromVariant(row.value("resetCredits"))}});
     }
+    QJsonArray sessions;
+    for (const auto &item : m_sessions) {
+        const auto session = item.toMap();
+        // Session rows carry project names and paths, never account identity.
+        sessions.append(QJsonObject{{"id", session.value("id").toString()},
+            {"provider", session.value("provider").toString()},
+            {"state", session.value("state").toString()},
+            {"project", session.value("project").toString()},
+            {"cwd", session.value("cwd").toString()},
+            {"pid", session.value("pid").toInt()},
+            {"lastActivity", session.value("lastActivity").toString()}});
+    }
     QJsonArray spending;
     for (const auto &item : m_spending) {
         const auto row = item.toMap();
@@ -363,7 +428,7 @@ QJsonObject DesktopController::snapshot() const {
             {"error", row.value("error").toString()}});
     }
     return {{"schemaVersion", 1}, {"pid", QCoreApplication::applicationPid()}, {"summary", m_summary}, {"barEntries", m_barEntries},
-        {"entries", compact}, {"quotaDisplay", m_settings.value("quotaDisplay").toString()}, {"busy", busy()}, {"stale", stale()}, {"error", m_error},
+        {"entries", compact}, {"sessions", sessions}, {"quotaDisplay", m_settings.value("quotaDisplay").toString()}, {"busy", busy()}, {"stale", stale()}, {"error", m_error},
         {"updated", updated()}, {"costBusy", costBusy()}, {"costProviders", m_spending.size()}, {"costError", m_costError}, {"spending", spending}};
 }
 
@@ -401,7 +466,7 @@ bool DesktopController::listen(const QString &socketPath) {
                     response = {{"ok", ok}, {"enabled", launchAtLogin()}};
                 }
                 else if (command == "refresh") { refresh(); refreshCosts(); }
-                else if (command == "settings" || command == "usage" || command == "spending" || command == "quick-view") showWindow(command);
+                else if (command == "settings" || command == "usage" || command == "spending" || command == "sessions" || command == "quick-view") showWindow(command);
                 else if (command == "configure" && request.value("settings").isObject()) {
                     const bool ok = saveSettings(request.value("settings").toObject().toVariantMap());
                     response = {{"ok", ok}, {"error", m_configError}};

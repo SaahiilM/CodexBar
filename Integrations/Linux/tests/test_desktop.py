@@ -32,6 +32,9 @@ if args[0]=='config':
 with (root/'calls.jsonl').open('a') as log: log.write(json.dumps({'pid':os.getpid(),'args':args})+'\\n')
 time.sleep(state.get('delay',0))
 if state.get('invalid') or state.get('failProvider')==provider: print('broken'); sys.exit(1)
+if args[0]=='sessions':
+ print(json.dumps([{'id':'session-1','provider':'claude','state':'active','projectName':'demo',
+ 'cwd':'/tmp/demo','pid':4242,'lastActivityAt':'2026-10-21T12:00:00Z'}])); sys.exit(0)
 if args[0]=='cost':
  print(json.dumps([{'provider':'codex','historyCoverageIsEstablished':True,'last30DaysCostUSD':12,
  'daily':[{'date':datetime.date.today().isoformat(),'totalCost':3}], 'totals':{'inputTokens':100}}]))
@@ -93,6 +96,20 @@ else:
         self.assertEqual(socket.stat().st_mode & 0o077, 0)
         calls = (self.root / 'calls.jsonl').read_text().splitlines()
         self.assertEqual(len(calls), 1)
+
+    def test_sessions_are_listed_only_when_the_tab_is_opened(self):
+        # The sessions probe is opt-in so the usage path stays free of extra CLI calls.
+        calls = (self.root / 'calls.jsonl')
+        self.assertNotIn('sessions', calls.read_text())
+        self.client('--sessions')
+        value = self.wait_for(lambda value: value.get('sessions'))
+        self.assertEqual(len(value['sessions']), 1)
+        session = value['sessions'][0]
+        self.assertEqual(session['provider'], 'claude')
+        self.assertEqual(session['project'], 'demo')
+        self.assertEqual(session['pid'], 4242)
+        arguments = [json.loads(line)['args'][0] for line in calls.read_text().splitlines()]
+        self.assertIn('sessions', arguments)
 
     def test_preferences_validation_and_atomic_save(self):
         self.assertFalse(self.client('--configure', '{"provider":"bad;command"}', check=False)['ok'])
