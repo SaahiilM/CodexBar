@@ -102,7 +102,8 @@ static QString providerSummary(const QVariantMap &entry, const QString &quotaDis
         const auto value = quotaDisplay == "used" ? 100.0 - remaining : remaining;
         const auto label = window.value("label").toString();
         if (label.isEmpty()) continue;
-        parts.append(QString("%1 %2%").arg(label).arg(value, 0, 'f', 0).arg(quotaDisplay == "used" ? "% used" : "% left"));
+        parts.append(QString("%1 %2% %3").arg(label).arg(value, 0, 'f', 0)
+            .arg(quotaDisplay == "used" ? "used" : "left"));
     }
     if (parts.isEmpty()) {
         if (entry.value("failed").toBool()) return QString("%1 — usage unavailable").arg(providerDisplayName(provider));
@@ -161,7 +162,7 @@ int main(int argc, char **argv) {
     QCommandLineParser parser;
     parser.setApplicationDescription("CodexBar desktop for Linux · Qt windows and optional tray");
     parser.addHelpOption(); parser.addVersionOption();
-    for (const auto &name : {"snapshot", "refresh", "settings", "spending", "sessions", "usage", "quick-view", "quit", "background", "no-tray"})
+    for (const auto &name : {"snapshot", "refresh", "refresh-sessions", "settings", "spending", "sessions", "usage", "quick-view", "quit", "background", "no-tray"})
         parser.addOption(QCommandLineOption(name, QString("%1 the running desktop app").arg(name)));
     parser.addOption(QCommandLineOption("autostart", "Set login startup: enable, disable, status", "action"));
     parser.addOption(QCommandLineOption("configure", "Update desktop settings through local IPC", "json"));
@@ -169,9 +170,9 @@ int main(int argc, char **argv) {
     parser.addOption(QCommandLineOption("with-spending", "With --snapshot, refresh local spending when its cache is stale"));
     parser.process(*application);
     QString command = "usage";
-    for (const auto &name : {"background", "usage", "quick-view", "settings", "spending", "sessions", "refresh", "snapshot", "quit", "configure", "autostart"})
+    for (const auto &name : {"background", "usage", "quick-view", "settings", "spending", "sessions", "refresh", "refresh-sessions", "snapshot", "quit", "configure", "autostart"})
         if (parser.isSet(name)) command = name;
-    const bool clientOnly = QStringList{"snapshot", "refresh", "quit", "configure", "autostart"}.contains(command);
+    const bool clientOnly = QStringList{"snapshot", "refresh", "refresh-sessions", "quit", "configure", "autostart"}.contains(command);
     const bool noTray = parser.isSet("no-tray");
     const auto cli = parser.value("cli");
     QJsonObject message{{"command", command}};
@@ -283,12 +284,14 @@ int main(int argc, char **argv) {
         if (providerMenu) {
             providerMenu->clear();
             const auto entries = controller.entries();
+            const auto trayLines = controller.trayLines();
             if (entries.isEmpty()) {
                 providerMenu->addAction("No provider data")->setEnabled(false);
             } else {
-                for (const auto &item : entries) {
+                for (int index = 0; index < entries.size(); ++index) {
+                    const auto &item = entries.at(index);
                     const auto entry = item.toMap();
-                    const auto action = providerMenu->addAction(providerSummary(entry, quotaDisplay));
+                    const auto action = providerMenu->addAction(trayLines.value(index, providerSummary(entry, quotaDisplay)));
                     action->setEnabled(!entry.value("failed").toBool());
                     QObject::connect(action, &QAction::triggered, &controller, [&controller] { controller.showWindow("usage"); });
                 }

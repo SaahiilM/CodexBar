@@ -170,6 +170,18 @@ else:
         value = self.wait_for(lambda value: value.get('overview', {}).get('providers') == 1)
         self.assertEqual(value['trayIconSource'], 'first')
 
+    def test_a_failed_session_scan_keeps_the_last_known_list(self):
+        self.client('--sessions')
+        value = self.wait_for(lambda value: value.get('sessions'))
+        self.assertEqual(len(value['sessions']), 1)
+        self.assertEqual(value['sessionsError'], '')
+        # A failing scan must not empty the list or pass a failure off as "none".
+        (self.root / 'state.json').write_text(json.dumps({'failSessions': True}))
+        self.client('--refresh-sessions')
+        value = self.wait_for(lambda value: value.get('sessionsError'))
+        self.assertEqual(len(value['sessions']), 1)
+        self.assertIn('could not be refreshed', value['sessionsError'])
+
     def test_preferences_validation_and_atomic_save(self):
         self.assertFalse(self.client('--configure', '{"provider":"bad;command"}', check=False)['ok'])
         self.assertTrue(self.client('--configure', '{"provider":"claude","refreshSeconds":900,"showIdentity":true}')['ok'])

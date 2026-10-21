@@ -548,6 +548,7 @@ bool DesktopController::listen(const QString &socketPath) {
                 }
                 else if (command == "refresh") { refresh(); refreshCosts(); }
                 else if (command == "refresh-sessions") { refreshSessions(true); response = {{"ok", true}}; }
+                else if (command == "refresh-sessions") { refreshSessions(true); response = {{"ok", true}}; }
                 else if (command == "settings" || command == "usage" || command == "spending" || command == "sessions" || command == "quick-view") showWindow(command);
                 else if (command == "configure" && request.value("settings").isObject()) {
                     const bool ok = saveSettings(request.value("settings").toObject().toVariantMap());

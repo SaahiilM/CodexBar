@@ -87,8 +87,8 @@ ApplicationWindow {
                     spacing: 8
                     Label {
                         Layout.fillWidth: true; wrapMode: Text.Wrap
-                        text: desktop.sessions.length === 0 ? "No agent sessions detected" :
-                            desktop.sessions.length + (desktop.sessions.length === 1 ? " session" : " sessions") + " reported by the CodexBar CLI"
+                        text: desktop.sessionsError || (desktop.sessions.length === 0 ? "No agent sessions detected" :
+                            desktop.sessions.length + (desktop.sessions.length === 1 ? " session" : " sessions") + " reported by the CodexBar CLI")
                         opacity: 0.7
                     }
                     Repeater {
