@@ -111,6 +111,13 @@ else:
         arguments = [json.loads(line)['args'][0] for line in calls.read_text().splitlines()]
         self.assertIn('sessions', arguments)
 
+    def test_tray_icon_source_preference_is_validated(self):
+        self.assertFalse(self.client('--configure', '{"trayIconSource":"nonsense"}', check=False)['ok'])
+        self.assertTrue(self.client('--configure', '{"trayIconSource":"first"}')['ok'])
+        settings = json.loads((self.root / 'config/codexbar/linux.json').read_text())
+        self.assertEqual(settings['trayIconSource'], 'first')
+        self.assertFalse(self.client('--configure', '{"trayStyle":"nonsense"}', check=False)['ok'])
+
     def test_preferences_validation_and_atomic_save(self):
         self.assertFalse(self.client('--configure', '{"provider":"bad;command"}', check=False)['ok'])
         self.assertTrue(self.client('--configure', '{"provider":"claude","refreshSeconds":900,"showIdentity":true}')['ok'])

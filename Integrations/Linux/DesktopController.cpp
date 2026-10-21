@@ -96,7 +96,8 @@ bool DesktopController::validate(QVariantMap &values) {
     values["providerOrder"] = unique;
     if (!QStringList{"remaining", "used"}.contains(values.value("quotaDisplay").toString()) ||
         !QStringList{"countdown", "absolute", "both"}.contains(values.value("resetDisplay").toString()) ||
-        !QStringList{"meters", "icon"}.contains(values.value("trayStyle").toString())) {
+        !QStringList{"meters", "icon"}.contains(values.value("trayStyle").toString()) ||
+        !QStringList{"highest", "first"}.contains(values.value("trayIconSource").toString())) {
         m_configError = "Unsupported display preference."; return false;
     }
     for (const auto &key : {"allAccounts", "showIdentity", "showCosts", "showStatus", "notifications", "showTray", "compactQuickView", "refreshOnOpen", "showPace", "showBarDetail", "showScopedCaps", "warningColors", "followOmarchyTheme"})
@@ -110,7 +111,7 @@ void DesktopController::loadSettings(const QString &cliOverride) {
         {"showIdentity", false}, {"showCosts", true}, {"showStatus", true}, {"notifications", false}, {"showTray", true}, {"compactQuickView", false}, {"refreshOnOpen", false}, {"providerOrder", QStringList{}},
         {"quotaDisplay", "remaining"}, {"resetDisplay", "countdown"}, {"showPace", true},
         {"showBarDetail", false}, {"showScopedCaps", false}, {"barProviders", 2},
-        {"warningColors", true}, {"trayStyle", "meters"}, {"followOmarchyTheme", false}};
+        {"warningColors", true}, {"trayStyle", "meters"}, {"trayIconSource", "highest"}, {"followOmarchyTheme", false}};
     m_configPath = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/codexbar/linux.json";
     QFile file(m_configPath);
     QVariantMap candidate = m_settings;
