@@ -134,6 +134,66 @@ ApplicationWindow {
                             }
                             Label { text: modelData.coverage; opacity: 0.7; Layout.fillWidth: true; wrapMode: Text.Wrap }
                             UsageChart { Layout.fillWidth: true; chart: modelData.chart }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                visible: (modelData.projects || []).length > 0
+                                spacing: 4
+                                Label { text: "Projects"; font.pixelSize: 12; font.bold: true; opacity: 0.75 }
+                                Repeater {
+                                    model: modelData.projects || []
+                                    RowLayout {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        Label {
+                                            text: modelData.name
+                                            Layout.fillWidth: true
+                                            elide: Text.ElideRight
+                                            font.pixelSize: 12
+                                            opacity: 0.8
+                                        }
+                                        Label {
+                                            text: Usage.count(modelData.tokens)
+                                            font.pixelSize: 11
+                                            opacity: 0.6
+                                        }
+                                        Label {
+                                            text: Usage.money(modelData.cost)
+                                            font.pixelSize: 12
+                                            font.bold: true
+                                        }
+                                    }
+                                }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                visible: (modelData.models || []).length > 0
+                                spacing: 4
+                                Label { text: "Models"; font.pixelSize: 12; font.bold: true; opacity: 0.75 }
+                                Repeater {
+                                    model: modelData.models || []
+                                    RowLayout {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        Label {
+                                            text: modelData.name
+                                            Layout.fillWidth: true
+                                            elide: Text.ElideRight
+                                            font.pixelSize: 12
+                                            opacity: 0.8
+                                        }
+                                        Label {
+                                            text: Usage.count(modelData.tokens)
+                                            font.pixelSize: 11
+                                            opacity: 0.6
+                                        }
+                                        Label {
+                                            text: Usage.money(modelData.cost)
+                                            font.pixelSize: 12
+                                            font.bold: true
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

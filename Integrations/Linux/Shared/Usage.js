@@ -185,12 +185,30 @@ function costs(text, today) {
         var totals = row.totals || {};
         var daily = Array.isArray(row.daily) ? row.daily.slice(-30) : [];
         var todayRow = daily.find(function(day) { return day.date === today; });
+        // Projects and models come from the same local history the chart uses.
+        var projects = (Array.isArray(row.projects) ? row.projects : []).slice(0, 8).map(function(project) {
+            return {name: String(project.name || project.path || ""), cost: number(project.totalCost),
+                tokens: number(project.totalTokens)};
+        }).filter(function(project) { return project.cost !== null || project.tokens !== null; });
+        var models = {};
+        daily.forEach(function(day) {
+            (day.modelBreakdowns || []).forEach(function(model) {
+                var name = String(model.modelName || "");
+                if (!name) return;
+                var entry = models[name] || (models[name] = {name: name, cost: 0, tokens: 0});
+                entry.cost += number(model.cost) || 0;
+                entry.tokens += number(model.totalTokens) || 0;
+            });
+        });
+        var modelList = Object.keys(models).map(function(name) { return models[name]; })
+            .sort(function(a, b) { return b.cost - a.cost; }).slice(0, 8);
         return {provider: row.provider, today: todayRow ? number(todayRow.totalCost) :
                 row.historyCoverageIsEstablished === true && !row.error ? 0 : null, month: number(row.last30DaysCostUSD),
             tokens: number(row.last30DaysTokens), input: number(totals.inputTokens), output: number(totals.outputTokens),
             cached: number(totals.cacheReadTokens), provenance: String(row.provenance || "unknown"),
             coverage: row.historyCoverageIsEstablished === true ? "Local history" : "History may be incomplete",
             error: row.error ? "Local cost history unavailable" : "",
+            projects: projects, models: modelList,
             chart: chart({title: "Recorded daily cost · USD", unit: "USD", kind: "bars",
                 points: daily.map(function(day) { return {label: day.date, value: day.totalCost}; })})};
     });
