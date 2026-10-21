@@ -7,7 +7,7 @@ import "../Shared/Usage.js" as Usage
 // to its limit and when the next window resets.
 Frame {
     id: root
-    property var summary: Usage.overview(desktop.entries, desktop.spending)
+    property var summary: desktop.overview
     property bool spending: false
     Layout.fillWidth: true
     padding: 14

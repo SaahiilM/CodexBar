@@ -509,6 +509,7 @@ QJsonObject DesktopController::snapshot() {
     return {{"schemaVersion", 1}, {"pid", QCoreApplication::applicationPid()}, {"summary", m_summary}, {"barEntries", m_barEntries},
         {"entries", compact}, {"sessions", sessions}, {"sessionsError", m_sessionsError},
         {"trayLines", QJsonArray::fromStringList(trayLines())}, {"overview", QJsonObject::fromVariantMap(overview())},
+        {"trayIconSource", m_settings.value("trayIconSource").toString()}, {"overview", QJsonObject::fromVariantMap(overview())},
         {"trayIconSource", m_settings.value("trayIconSource").toString()}, {"quotaDisplay", m_settings.value("quotaDisplay").toString()}, {"busy", busy()}, {"stale", stale()}, {"error", m_error},
         {"updated", updated()}, {"costBusy", costBusy()}, {"costProviders", m_spending.size()}, {"costError", m_costError}, {"spending", spending}};
 }

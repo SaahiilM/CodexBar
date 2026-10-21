@@ -182,6 +182,23 @@ else:
         self.assertEqual(len(value['sessions']), 1)
         self.assertIn('could not be refreshed', value['sessionsError'])
 
+    def test_tray_lines_state_used_or_left(self):
+        # The line has to say whether the number is used or still available.
+        self.client('--configure', '{"quotaDisplay":"used"}')
+        value = self.wait_for(lambda value: value.get('trayLines'))
+        self.assertEqual(value['trayLines'], ['Codex — 5 hour 40% used'])
+        self.client('--configure', '{"quotaDisplay":"remaining"}')
+        value = self.wait_for(lambda value: value.get('trayLines') == ['Codex — 5 hour 60% left'])
+        self.assertEqual(value['trayLines'], ['Codex — 5 hour 60% left'])
+
+    def test_the_overview_keeps_a_parsable_reset_time(self):
+        value = self.wait_for(lambda value: value.get('overview', {}).get('nextReset'))
+        overview = value['overview']
+        # The reset helper parses this string again, so it has to stay a date string.
+        self.assertRegex(overview['nextReset'], r'^\d{4}-\d{2}-\d{2}T')
+        self.assertEqual(overview['providers'], 1)
+        self.assertGreater(overview['highest'], 0)
+
     def test_preferences_validation_and_atomic_save(self):
         self.assertFalse(self.client('--configure', '{"provider":"bad;command"}', check=False)['ok'])
         self.assertTrue(self.client('--configure', '{"provider":"claude","refreshSeconds":900,"showIdentity":true}')['ok'])

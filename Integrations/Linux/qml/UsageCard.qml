@@ -120,7 +120,7 @@ Frame {
                     Rectangle {
                         visible: Usage.resetText(modelData.resetsAt, clock.now, desktop.settings.resetDisplay) !== ""
                         radius: 9; height: 20; width: resetLabel.implicitWidth + 16
-                        color: root.accent; opacity: 0.14
+                        color: Qt.alpha(root.accent, 0.14)
                         Label {
                             id: resetLabel
                             anchors.centerIn: parent
@@ -132,7 +132,7 @@ Frame {
                     Rectangle {
                         visible: desktop.settings.showPace && modelData.pace !== ""
                         radius: 9; height: 20; width: paceLabel.implicitWidth + 16
-                        color: root.accent; opacity: 0.14
+                        color: Qt.alpha(root.accent, 0.14)
                         Label {
                             id: paceLabel
                             anchors.centerIn: parent

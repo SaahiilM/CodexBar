@@ -419,29 +419,18 @@ function accent(id) {
     return palette[hash % palette.length];
 }
 
-// A compact summary for the dashboard header: how many providers are tracked,
-// which one is closest to its limit and when the next window resets.
-function overview(entries, spending) {
-    var providers = 0, highest = 0, credits = null, nextReset = 0, nextLabel = "";
-    (entries || []).forEach(function(entry) {
-        if (entry.failed) return;
-        providers += 1;
-        if (typeof entry.credits === "number") credits = (credits || 0) + entry.credits;
+// The tray menu lists one line per provider, the way the macOS menu bar switcher
+// does. The wording matches the quota display preference.
+function providerLines(entries, mode) {
+    return (entries || []).map(function(entry) {
+        var name = providerName(entry.provider);
+        var parts = [];
         (entry.windows || []).forEach(function(window) {
-            var used = 100 - (typeof window.remaining === "number" ? window.remaining : 0);
-            if (used > highest) highest = used;
-            var reset = Date.parse(window.resetsAt);
-            if (isFinite(reset) && (nextReset === 0 || reset < nextReset)) {
-                nextReset = reset;
-                nextLabel = window.label || "";
-            }
+            if (!window.label) return;
+            parts.push(window.label + " " + quotaValue(window.remaining, mode) + "% " +
+                (mode === "used" ? "used" : "left"));
         });
+        if (!parts.length) return name + " — " + (entry.failed ? "usage unavailable" : "no quota windows");
+        return name + " — " + parts.join(" · ");
     });
-    var spend = null, tokens = 0;
-    (spending || []).forEach(function(row) {
-        if (typeof row.month === "number") spend = (spend || 0) + row.month;
-        if (typeof row.tokens === "number") tokens += row.tokens;
-    });
-    return {providers: providers, highest: highest, credits: credits, nextReset: nextReset,
-        nextLabel: nextLabel, spend: spend, tokens: tokens};
 }
