@@ -382,3 +382,21 @@ function resetText(timestamp, now, mode) {
     if (mode === "both") return resetLabel(timestamp, now) + " · " + absolute;
     return resetLabel(timestamp, now);
 }
+
+// A stable accent colour per provider so several cards stay distinguishable.
+// The well-known providers keep their brand colour; the rest are hashed into a
+// fixed palette so the same provider always looks the same.
+function accent(id) {
+    var brand = {codex: "#10a37f", claude: "#d97757", copilot: "#24292f", gemini: "#4285f4",
+        cursor: "#111111", antigravity: "#7c3aed", openrouter: "#6467f2", kiro: "#7b3fe4",
+        opencode: "#f59e0b", opencodego: "#ec4899", zai: "#2563eb", grok: "#111111",
+        mistral: "#fa500f", deepseek: "#4d6bfe", perplexity: "#20808d", xai: "#111111",
+        ollama: "#111111", v0: "#000000", vercel: "#000000", raycast: "#ff6363",
+        huggingface: "#ffd21e", moonshot: "#0b5fff", qwencloud: "#615ced", zed: "#084ccf"};
+    if (brand[id]) return brand[id];
+    var palette = ["#0ea5e9", "#f97316", "#14b8a6", "#8b5cf6", "#ec4899", "#e11d48", "#22c55e", "#6366f1"];
+    var hash = 0;
+    for (var index = 0; index < (id || "").length; ++index)
+        hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
+    return palette[hash % palette.length];
+}
