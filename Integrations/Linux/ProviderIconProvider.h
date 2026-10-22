@@ -59,4 +59,3 @@ private:
         painter.drawText(image.rect(), Qt::AlignCenter, initial);
     }
 };
-
