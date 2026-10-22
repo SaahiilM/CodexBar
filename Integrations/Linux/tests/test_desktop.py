@@ -32,10 +32,6 @@ if args[0]=='config':
 with (root/'calls.jsonl').open('a') as log: log.write(json.dumps({'pid':os.getpid(),'args':args})+'\\n')
 time.sleep(state.get('delay',0))
 if state.get('invalid') or state.get('failProvider')==provider: print('broken'); sys.exit(1)
-if args[0]=='sessions':
- if state.get('failSessions'): print('broken'); sys.exit(1)
- print(json.dumps([{'id':'session-1','provider':'claude','state':'active','projectName':'demo',
- 'cwd':'/tmp/demo','pid':4242,'lastActivityAt':'2026-10-21T12:00:00Z'}])); sys.exit(0)
 if args[0]=='cost':
  print(json.dumps([{'provider':'codex','historyCoverageIsEstablished':True,'last30DaysCostUSD':12,
  'daily':[{'date':datetime.date.today().isoformat(),'totalCost':3}], 'totals':{'inputTokens':100}}]))
@@ -97,122 +93,6 @@ else:
         self.assertEqual(socket.stat().st_mode & 0o077, 0)
         calls = (self.root / 'calls.jsonl').read_text().splitlines()
         self.assertEqual(len(calls), 1)
-
-    def test_sessions_are_listed_only_when_the_tab_is_opened(self):
-        # The sessions probe is opt-in so the usage path stays free of extra CLI calls.
-        calls = (self.root / 'calls.jsonl')
-        self.assertNotIn('sessions', calls.read_text())
-        self.client('--sessions')
-        value = self.wait_for(lambda value: value.get('sessions'))
-        self.assertEqual(len(value['sessions']), 1)
-        session = value['sessions'][0]
-        self.assertEqual(session['provider'], 'claude')
-        self.assertEqual(session['project'], 'demo')
-        self.assertEqual(session['pid'], 4242)
-        arguments = [json.loads(line)['args'][0] for line in calls.read_text().splitlines()]
-        self.assertIn('sessions', arguments)
-
-    def test_existing_settings_keep_the_first_provider_in_the_tray(self):
-        # A linux.json written before the tray source preference existed must not
-        # switch the tray to another provider behind the user's back.
-        (self.root / 'config/codexbar').mkdir(parents=True, exist_ok=True)
-        (self.root / 'config/codexbar/linux.json').write_text(json.dumps({'provider': 'codex'}))
-        self.client('--quit', check=False)
-        self.process.wait(timeout=4)
-        self.process = subprocess.Popen([str(APP), '--background', '--no-tray', '--cli', str(self.fake)],
-                                        env=self.environment, stdout=self.log, stderr=self.log)
-        value = self.wait_for(lambda value: value.get('overview', {}).get('providers') == 1)
-        self.assertEqual(value['trayIconSource'], 'first')
-        self.assertEqual(value['trayLines'], ['Codex — 5 hour 60% left'])
-
-    def test_tray_lines_state_used_or_left(self):
-        self.client('--configure', '{"quotaDisplay":"used"}')
-        value = self.wait_for(lambda value: value.get('trayLines'))
-        self.assertEqual(value['trayLines'], ['Codex — 5 hour 40% used'])
-
-    def test_a_failed_session_scan_keeps_the_last_known_list(self):
-        self.client('--sessions')
-        value = self.wait_for(lambda value: value.get('sessions'))
-        self.assertEqual(len(value['sessions']), 1)
-        self.assertEqual(value['sessionsError'], '')
-        # A failing scan must not empty the list or pass a failure off as "none".
-        (self.root / 'state.json').write_text(json.dumps({'failSessions': True}))
-        self.client('--refresh-sessions')
-        value = self.wait_for(lambda value: value.get('sessionsError'))
-        self.assertEqual(len(value['sessions']), 1)
-        self.assertIn('could not be refreshed', value['sessionsError'])
-
-    def test_the_overview_keeps_a_parsable_reset_time(self):
-        value = self.wait_for(lambda value: value.get('overview', {}).get('nextReset'))
-        overview = value['overview']
-        self.assertTrue(overview['nextReset'])
-        # The reset helper parses this string again, so it has to stay a date string.
-        self.assertRegex(overview['nextReset'], r'^\d{4}-\d{2}-\d{2}T')
-        self.assertEqual(overview['providers'], 1)
-        self.assertGreater(overview['highest'], 0)
-
-    def test_tray_icon_source_preference_is_validated(self):
-        self.assertFalse(self.client('--configure', '{"trayIconSource":"nonsense"}', check=False)['ok'])
-        self.assertTrue(self.client('--configure', '{"trayIconSource":"first"}')['ok'])
-        settings = json.loads((self.root / 'config/codexbar/linux.json').read_text())
-        self.assertEqual(settings['trayIconSource'], 'first')
-        self.assertFalse(self.client('--configure', '{"trayStyle":"nonsense"}', check=False)['ok'])
-
-    def test_existing_settings_keep_the_first_provider_in_the_tray(self):
-        # A linux.json written before the tray source preference existed must not
-        # switch the tray to another provider behind the user's back.
-        (self.root / 'config/codexbar').mkdir(parents=True, exist_ok=True)
-        (self.root / 'config/codexbar/linux.json').write_text(json.dumps({'provider': 'codex'}))
-        self.client('--quit', check=False)
-        self.process.wait(timeout=4)
-        self.process = subprocess.Popen([str(APP), '--background', '--no-tray', '--cli', str(self.fake)],
-                                        env=self.environment, stdout=self.log, stderr=self.log)
-        value = self.wait_for(lambda value: value.get('overview', {}).get('providers') == 1)
-        self.assertEqual(value['trayIconSource'], 'first')
-
-    def test_a_failed_session_scan_keeps_the_last_known_list(self):
-        self.client('--sessions')
-        value = self.wait_for(lambda value: value.get('sessions'))
-        self.assertEqual(len(value['sessions']), 1)
-        self.assertEqual(value['sessionsError'], '')
-        # A failing scan must not empty the list or pass a failure off as "none".
-        (self.root / 'state.json').write_text(json.dumps({'failSessions': True}))
-        self.client('--refresh-sessions')
-        value = self.wait_for(lambda value: value.get('sessionsError'))
-        self.assertEqual(len(value['sessions']), 1)
-        self.assertIn('could not be refreshed', value['sessionsError'])
-
-    def test_tray_lines_state_used_or_left(self):
-        # The line has to say whether the number is used or still available.
-        self.client('--configure', '{"quotaDisplay":"used"}')
-        value = self.wait_for(lambda value: value.get('trayLines'))
-        self.assertEqual(value['trayLines'], ['Codex — 5 hour 40% used'])
-        self.client('--configure', '{"quotaDisplay":"remaining"}')
-        value = self.wait_for(lambda value: value.get('trayLines') == ['Codex — 5 hour 60% left'])
-        self.assertEqual(value['trayLines'], ['Codex — 5 hour 60% left'])
-
-    def test_the_overview_keeps_a_parsable_reset_time(self):
-        value = self.wait_for(lambda value: value.get('overview', {}).get('nextReset'))
-        overview = value['overview']
-        # The reset helper parses this string again, so it has to stay a date string.
-        self.assertRegex(overview['nextReset'], r'^\d{4}-\d{2}-\d{2}T')
-        self.assertEqual(overview['providers'], 1)
-        self.assertGreater(overview['highest'], 0)
-
-    def test_the_projection_and_workday_tick_reach_the_windows(self):
-        # A window that started four hours ago and resets in an hour.
-        reset = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).isoformat().replace('+00:00', 'Z')
-        (self.root / 'state.json').write_text(json.dumps({'usage': {
-            'primary': {'usedPercent': 40, 'windowMinutes': 300, 'resetsAt': reset}}}))
-        self.client('--refresh')
-        value = self.wait_for(lambda value: value.get('entries') and not value['busy']
-                              and value['entries'][0]['windows'][0].get('projected', -1) >= 0)
-        window = value['entries'][0]['windows'][0]
-        # The window resets in the future, so the projection is a real number.
-        self.assertGreaterEqual(window['projected'], 0)
-        self.assertLessEqual(window['projected'], 200)
-        # A five hour window has no working-day progress.
-        self.assertEqual(window['workdayPercent'], -1)
 
     def test_preferences_validation_and_atomic_save(self):
         self.assertFalse(self.client('--configure', '{"provider":"bad;command"}', check=False)['ok'])

@@ -185,30 +185,12 @@ function costs(text, today) {
         var totals = row.totals || {};
         var daily = Array.isArray(row.daily) ? row.daily.slice(-30) : [];
         var todayRow = daily.find(function(day) { return day.date === today; });
-        // Projects and models come from the same local history the chart uses.
-        var projects = (Array.isArray(row.projects) ? row.projects : []).slice(0, 8).map(function(project) {
-            return {name: String(project.name || project.path || ""), cost: number(project.totalCost),
-                tokens: number(project.totalTokens)};
-        }).filter(function(project) { return project.cost !== null || project.tokens !== null; });
-        var models = {};
-        daily.forEach(function(day) {
-            (day.modelBreakdowns || []).forEach(function(model) {
-                var name = String(model.modelName || "");
-                if (!name) return;
-                var entry = models[name] || (models[name] = {name: name, cost: 0, tokens: 0});
-                entry.cost += number(model.cost) || 0;
-                entry.tokens += number(model.totalTokens) || 0;
-            });
-        });
-        var modelList = Object.keys(models).map(function(name) { return models[name]; })
-            .sort(function(a, b) { return b.cost - a.cost; }).slice(0, 8);
         return {provider: row.provider, today: todayRow ? number(todayRow.totalCost) :
                 row.historyCoverageIsEstablished === true && !row.error ? 0 : null, month: number(row.last30DaysCostUSD),
             tokens: number(row.last30DaysTokens), input: number(totals.inputTokens), output: number(totals.outputTokens),
             cached: number(totals.cacheReadTokens), provenance: String(row.provenance || "unknown"),
             coverage: row.historyCoverageIsEstablished === true ? "Local history" : "History may be incomplete",
             error: row.error ? "Local cost history unavailable" : "",
-            projects: projects, models: modelList,
             chart: chart({title: "Recorded daily cost · USD", unit: "USD", kind: "bars",
                 points: daily.map(function(day) { return {label: day.date, value: day.totalCost}; })})};
     });
@@ -399,38 +381,4 @@ function resetText(timestamp, now, mode) {
     if (mode === "absolute") return "Resets " + absolute;
     if (mode === "both") return resetLabel(timestamp, now) + " · " + absolute;
     return resetLabel(timestamp, now);
-}
-
-// A stable accent colour per provider so several cards stay distinguishable.
-// The well-known providers keep their brand colour; the rest are hashed into a
-// fixed palette so the same provider always looks the same.
-function accent(id) {
-    var brand = {codex: "#10a37f", claude: "#d97757", copilot: "#24292f", gemini: "#4285f4",
-        cursor: "#111111", antigravity: "#7c3aed", openrouter: "#6467f2", kiro: "#7b3fe4",
-        opencode: "#f59e0b", opencodego: "#ec4899", zai: "#2563eb", grok: "#111111",
-        mistral: "#fa500f", deepseek: "#4d6bfe", perplexity: "#20808d", xai: "#111111",
-        ollama: "#111111", v0: "#000000", vercel: "#000000", raycast: "#ff6363",
-        huggingface: "#ffd21e", moonshot: "#0b5fff", qwencloud: "#615ced", zed: "#084ccf"};
-    if (brand[id]) return brand[id];
-    var palette = ["#0ea5e9", "#f97316", "#14b8a6", "#8b5cf6", "#ec4899", "#e11d48", "#22c55e", "#6366f1"];
-    var hash = 0;
-    for (var index = 0; index < (id || "").length; ++index)
-        hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
-    return palette[hash % palette.length];
-}
-
-// The tray menu lists one line per provider, the way the macOS menu bar switcher
-// does. The wording matches the quota display preference.
-function providerLines(entries, mode) {
-    return (entries || []).map(function(entry) {
-        var name = providerName(entry.provider);
-        var parts = [];
-        (entry.windows || []).forEach(function(window) {
-            if (!window.label) return;
-            parts.push(window.label + " " + quotaValue(window.remaining, mode) + "% " +
-                (mode === "used" ? "used" : "left"));
-        });
-        if (!parts.length) return name + " — " + (entry.failed ? "usage unavailable" : "no quota windows");
-        return name + " — " + parts.join(" · ");
-    });
 }

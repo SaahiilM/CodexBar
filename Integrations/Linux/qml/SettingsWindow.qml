@@ -28,7 +28,6 @@ ApplicationWindow {
         quota.currentIndex = quota.model.indexOf(s.quotaDisplay);
         reset.currentIndex = reset.model.indexOf(s.resetDisplay);
         trayStyle.currentIndex = trayStyle.model.indexOf(s.trayStyle);
-        traySource.currentIndex = traySource.model.indexOf(s.trayIconSource);
         theme.checked = s.followOmarchyTheme; pace.checked = s.showPace; warnings.checked = s.warningColors;
         barDetail.checked = s.showBarDetail; scopedCaps.checked = s.showScopedCaps; barProviders.value = s.barProviders;
         refreshOnOpen.checked = s.refreshOnOpen; compactQuickView.checked = s.compactQuickView;
@@ -149,11 +148,6 @@ ApplicationWindow {
                             Label { text: "Tray style"; Layout.fillWidth: true }
                             ComboBox { id: trayStyle; model: ["meters", "icon"] }
                         }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Label { text: "Tray icon shows"; Layout.fillWidth: true; wrapMode: Text.Wrap }
-                            ComboBox { id: traySource; model: ["highest", "first"] }
-                        }
                         Option { id: costs; text: "Local spending" }
                     }
                 }
@@ -214,7 +208,7 @@ ApplicationWindow {
                         notifyThreshold: threshold.value, refreshSeconds: interval.value,
                         providerOrder: window.providerOrder, quotaDisplay: quota.currentText, resetDisplay: reset.currentText,
                         followOmarchyTheme: theme.checked, showPace: pace.checked,
-                        showBarDetail: barDetail.checked, showScopedCaps: scopedCaps.checked, barProviders: barProviders.value, warningColors: warnings.checked, trayStyle: trayStyle.currentText, trayIconSource: traySource.currentText,
+                        showBarDetail: barDetail.checked, showScopedCaps: scopedCaps.checked, barProviders: barProviders.value, warningColors: warnings.checked, trayStyle: trayStyle.currentText,
                         refreshOnOpen: refreshOnOpen.checked, showTray: tray.checked, compactQuickView: compactQuickView.checked, executable: executable.text.trim()})) window.feedback = "Settings saved";
                 }
             }

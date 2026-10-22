@@ -9,11 +9,10 @@ ApplicationWindow {
     width: 820; height: 700
     minimumWidth: 480; minimumHeight: 420
     property int selectedTab: 0
-    readonly property bool refreshing: selectedTab === 2 ? desktop.costBusy : (selectedTab === 1 ? false : desktop.busy)
+    readonly property bool refreshing: selectedTab === 0 ? desktop.busy : desktop.costBusy
     function refreshCurrent() {
-        if (selectedTab === 2) desktop.refreshCosts();
-        else if (selectedTab === 1) desktop.refreshSessions();
-        else desktop.refresh();
+        if (selectedTab === 0) desktop.refresh();
+        else desktop.refreshCosts();
     }
     onClosing: function(event) { event.accepted = false; hide(); }
     Shortcut { sequence: "Ctrl+R"; onActivated: window.refreshCurrent() }
@@ -45,8 +44,7 @@ ApplicationWindow {
             Layout.fillWidth: true
             currentIndex: window.selectedTab
             TabButton { text: "Usage"; onClicked: { window.selectedTab = 0; desktop.showWindow("usage"); } }
-            TabButton { text: "Sessions"; onClicked: { window.selectedTab = 1; desktop.showWindow("sessions"); } }
-            TabButton { text: "Spending"; onClicked: { window.selectedTab = 2; desktop.showWindow("spending"); } }
+            TabButton { text: "Spending"; onClicked: { window.selectedTab = 1; desktop.showWindow("spending"); } }
         }
         Label {
             Layout.fillWidth: true; wrapMode: Text.Wrap
@@ -62,62 +60,23 @@ ApplicationWindow {
             ColumnLayout {
                 width: scroll.availableWidth
                 spacing: 16
-                Overview {
-                    visible: window.selectedTab === 0
-                    Layout.fillWidth: true
-                }
                 Repeater {
                     model: window.selectedTab === 0 ? desktop.entries : []
                     UsageCard { required property var modelData; entry: modelData }
                 }
                 Label {
-                    visible: window.selectedTab === 2
+                    visible: window.selectedTab === 1
                     Layout.fillWidth: true; wrapMode: Text.Wrap
                     text: "Estimated cost of local Codex and Claude sessions, across accounts."
                     opacity: 0.7
                 }
                 Label {
-                    visible: window.selectedTab === 2
+                    visible: window.selectedTab === 1
                     Layout.fillWidth: true; wrapMode: Text.Wrap
                     text: !desktop.settings.showCosts ? "Enable local spending in Settings." : desktop.costBusy ? "Reading local history…" : desktop.costError
                 }
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    visible: window.selectedTab === 1
-                    spacing: 8
-                    Label {
-                        Layout.fillWidth: true; wrapMode: Text.Wrap
-                        text: desktop.sessionsError || (desktop.sessions.length === 0 ? "No agent sessions detected" :
-                            desktop.sessions.length + (desktop.sessions.length === 1 ? " session" : " sessions") + " reported by the CodexBar CLI")
-                        opacity: 0.7
-                    }
-                    Repeater {
-                        model: window.selectedTab === 1 ? desktop.sessions : []
-                        Frame {
-                            required property var modelData
-                            Layout.fillWidth: true; padding: 12
-                            ColumnLayout {
-                                width: parent.width; spacing: 4
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Label { text: Usage.providerName(modelData.provider); font.bold: true }
-                                    Label { text: modelData.state || ""; opacity: 0.65 }
-                                }
-                                Label {
-                                    Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText
-                                    text: modelData.project || modelData.cwd || modelData.id
-                                }
-                                Label {
-                                    Layout.fillWidth: true; wrapMode: Text.Wrap; opacity: 0.6; font.pixelSize: 12
-                                    visible: modelData.cwd !== "" && modelData.cwd !== modelData.project
-                                    text: modelData.cwd
-                                }
-                            }
-                        }
-                    }
-                }
                 Repeater {
-                    model: window.selectedTab === 2 && desktop.settings.showCosts ? desktop.spending : []
+                    model: window.selectedTab === 1 && desktop.settings.showCosts ? desktop.spending : []
                     Frame {
                         required property var modelData
                         Layout.fillWidth: true; padding: 14
@@ -134,66 +93,6 @@ ApplicationWindow {
                             }
                             Label { text: modelData.coverage; opacity: 0.7; Layout.fillWidth: true; wrapMode: Text.Wrap }
                             UsageChart { Layout.fillWidth: true; chart: modelData.chart }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                visible: (modelData.projects || []).length > 0
-                                spacing: 4
-                                Label { text: "Projects"; font.pixelSize: 12; font.bold: true; opacity: 0.75 }
-                                Repeater {
-                                    model: modelData.projects || []
-                                    RowLayout {
-                                        required property var modelData
-                                        Layout.fillWidth: true
-                                        Label {
-                                            text: modelData.name
-                                            Layout.fillWidth: true
-                                            elide: Text.ElideRight
-                                            font.pixelSize: 12
-                                            opacity: 0.8
-                                        }
-                                        Label {
-                                            text: Usage.count(modelData.tokens)
-                                            font.pixelSize: 11
-                                            opacity: 0.6
-                                        }
-                                        Label {
-                                            text: Usage.money(modelData.cost)
-                                            font.pixelSize: 12
-                                            font.bold: true
-                                        }
-                                    }
-                                }
-                            }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                visible: (modelData.models || []).length > 0
-                                spacing: 4
-                                Label { text: "Models"; font.pixelSize: 12; font.bold: true; opacity: 0.75 }
-                                Repeater {
-                                    model: modelData.models || []
-                                    RowLayout {
-                                        required property var modelData
-                                        Layout.fillWidth: true
-                                        Label {
-                                            text: modelData.name
-                                            Layout.fillWidth: true
-                                            elide: Text.ElideRight
-                                            font.pixelSize: 12
-                                            opacity: 0.8
-                                        }
-                                        Label {
-                                            text: Usage.count(modelData.tokens)
-                                            font.pixelSize: 11
-                                            opacity: 0.6
-                                        }
-                                        Label {
-                                            text: Usage.money(modelData.cost)
-                                            font.pixelSize: 12
-                                            font.bold: true
-                                        }
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -202,7 +101,7 @@ ApplicationWindow {
         }
         RowLayout {
             Layout.fillWidth: true
-            Button { text: window.refreshing ? "Refreshing…" : "Refresh"; enabled: !window.refreshing && (window.selectedTab !== 2 || desktop.settings.showCosts); onClicked: window.refreshCurrent() }
+            Button { text: window.refreshing ? "Refreshing…" : "Refresh"; enabled: !window.refreshing && (window.selectedTab === 0 || desktop.settings.showCosts); onClicked: window.refreshCurrent() }
             Item { Layout.fillWidth: true }
             Button { text: "Close"; onClicked: window.hide() }
         }

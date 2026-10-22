@@ -41,7 +41,7 @@ void stop(QProcess &process) {
 }
 
 DesktopController::DesktopController(const QString &cliOverride, QObject *parent) : QObject(parent) {
-    m_usageModel = module(m_engine, ":/Shared/Usage.js", "rows:rows, costs:costs, command:command, summary:summary, barSegments:barSegments, resetText:resetText, providerLines:providerLines");
+    m_usageModel = module(m_engine, ":/Shared/Usage.js", "rows:rows, costs:costs, command:command, summary:summary, barSegments:barSegments, resetText:resetText");
     m_noticeModel = module(m_engine, ":/Shared/Notifications.js", "transition:transition, summary:summary");
     m_noticeState = m_engine.newObject();
     loadSettings(cliOverride);
@@ -55,10 +55,7 @@ DesktopController::DesktopController(const QString &cliOverride, QObject *parent
 
 DesktopController::~DesktopController() {
     m_usage.disconnect(this); m_cost.disconnect(this);
-    // The sessions process is stopped while the controller is still alive: its
-    // completion handler would otherwise write into the already destroyed list.
-    m_sessionProcess.disconnect(this);
-    stop(m_usage); stop(m_cost); stop(m_catalog); stop(m_sessionProcess);
+    stop(m_usage); stop(m_cost); stop(m_catalog);
 }
 
 QJSValue DesktopController::call(const QJSValue &model, const QString &function, const QJSValueList &args) const {
@@ -99,8 +96,7 @@ bool DesktopController::validate(QVariantMap &values) {
     values["providerOrder"] = unique;
     if (!QStringList{"remaining", "used"}.contains(values.value("quotaDisplay").toString()) ||
         !QStringList{"countdown", "absolute", "both"}.contains(values.value("resetDisplay").toString()) ||
-        !QStringList{"meters", "icon"}.contains(values.value("trayStyle").toString()) ||
-        !QStringList{"highest", "first"}.contains(values.value("trayIconSource").toString())) {
+        !QStringList{"meters", "icon"}.contains(values.value("trayStyle").toString())) {
         m_configError = "Unsupported display preference."; return false;
     }
     for (const auto &key : {"allAccounts", "showIdentity", "showCosts", "showStatus", "notifications", "showTray", "compactQuickView", "refreshOnOpen", "showPace", "showBarDetail", "showScopedCaps", "warningColors", "followOmarchyTheme"})
@@ -114,7 +110,7 @@ void DesktopController::loadSettings(const QString &cliOverride) {
         {"showIdentity", false}, {"showCosts", true}, {"showStatus", true}, {"notifications", false}, {"showTray", true}, {"compactQuickView", false}, {"refreshOnOpen", false}, {"providerOrder", QStringList{}},
         {"quotaDisplay", "remaining"}, {"resetDisplay", "countdown"}, {"showPace", true},
         {"showBarDetail", false}, {"showScopedCaps", false}, {"barProviders", 2},
-        {"warningColors", true}, {"trayStyle", "meters"}, {"trayIconSource", "first"}, {"followOmarchyTheme", false}};
+        {"warningColors", true}, {"trayStyle", "meters"}, {"followOmarchyTheme", false}};
     m_configPath = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/codexbar/linux.json";
     QFile file(m_configPath);
     QVariantMap candidate = m_settings;
@@ -205,113 +201,6 @@ void DesktopController::refreshCosts() {
     probe(m_cost, {m_settings.value("executable").toString(), "cost", "--provider", "both", "--format", "json", "--days", "30"}, true);
 }
 
-void DesktopController::refreshSessions(bool force) {
-    if (m_sessionProcess.state() != QProcess::NotRunning) return;
-    // A finished scan keeps its handlers installed; drop them so the next scan
-    // does not read into the completed buffer.
-    m_sessionProcess.disconnect(this);
-    const auto command = QStringList{m_settings.value("executable").toString(), "sessions", "--json-v2"};
-    auto output = std::make_shared<QByteArray>();
-    auto complete = std::make_shared<bool>(false);
-    const int generation = m_generation;
-    auto *deadline = new QTimer(&m_sessionProcess);
-    deadline->setSingleShot(true);
-    connect(deadline, &QTimer::timeout, &m_sessionProcess, [this] { stop(m_sessionProcess); });
-    auto finish = [this, output, complete, generation, deadline](bool failed) {
-        if (*complete) return;
-        *complete = true; deadline->stop(); deadline->deleteLater();
-        if (generation != m_generation) return;
-        output->append(m_sessionProcess.readAllStandardOutput());
-        QVariantList sessions;
-        bool parsed = false;
-        if (!failed && output->size() <= 4 * 1024 * 1024) {
-            QJsonParseError parse;
-            const auto document = QJsonDocument::fromJson(*output, &parse);
-            if (parse.error == QJsonParseError::NoError && document.isArray()) {
-                parsed = true;
-                for (const auto &item : document.array()) {
-                    if (!item.isObject()) continue;
-                    const auto session = item.toObject();
-                    sessions.append(QVariantMap{
-                        {"id", session.value("id").toString()},
-                        {"provider", session.value("provider").toString()},
-                        {"state", session.value("state").toString()},
-                        {"project", session.value("projectName").toString()},
-                        {"cwd", session.value("cwd").toString()},
-                        {"pid", session.value("pid").toInt()},
-                        {"lastActivity", session.value("lastActivityAt").toString()}});
-                }
-            }
-        }
-        if (parsed) {
-            // A valid empty list is a real answer; a failed scan keeps the last
-            // known list and reports why it could not be refreshed.
-            m_sessions = sessions;
-            m_sessionsError.clear();
-            m_sessionsUpdated = QDateTime::currentMSecsSinceEpoch();
-        } else if (m_sessionsError.isEmpty()) {
-            m_sessionsError = "Agent sessions could not be refreshed. The last known list is shown.";
-        }
-        emit changed();
-    };
-    connect(&m_sessionProcess, &QProcess::readyReadStandardOutput, this, [this, output] {
-        output->append(m_sessionProcess.readAllStandardOutput());
-        if (output->size() > 4 * 1024 * 1024) stop(m_sessionProcess);
-    });
-    connect(&m_sessionProcess, &QProcess::readyReadStandardError, this, [this] { m_sessionProcess.readAllStandardError(); });
-    connect(&m_sessionProcess, &QProcess::finished, this, [finish](int, QProcess::ExitStatus status) { finish(status != QProcess::NormalExit); });
-    connect(&m_sessionProcess, &QProcess::errorOccurred, this, [finish](QProcess::ProcessError error) {
-        if (error == QProcess::FailedToStart) finish(true);
-    });
-    m_sessionProcess.setChildProcessModifier([] { ::setsid(); });
-    m_sessionProcess.start(command.first(), command.mid(1));
-    deadline->start(30000);
-}
-
-
-// How much of the window is used when it resets, assuming the current rate.
-// Returns a negative value when the window cannot be projected.
-static double projectedUsage(const QVariantMap &window) {
-    const auto minutes = window.value("minutes").toInt();
-    if (minutes <= 0) return -1;
-    const auto resetsAt = window.value("resetsAt").toString();
-    const auto reset = QDateTime::fromString(resetsAt, Qt::ISODate);
-    if (!reset.isValid()) return -1;
-    const auto now = QDateTime::currentDateTimeUtc();
-    if (now >= reset) return -1;
-    const auto start = reset.addSecs(-minutes * 60);
-    const auto elapsed = start.secsTo(now);
-    // The window has to have started before it can be projected.
-    if (elapsed <= 0) return -1;
-    const auto used = 100.0 - window.value("remaining").toDouble();
-    const auto left = now.secsTo(reset);
-    if (left <= 0) return -1;
-    const auto projected = used + (used / elapsed) * left;
-    return qBound(0.0, projected, 200.0);
-}
-
-// How far through the working days a weekly window is, in percent. Only the
-// working days count towards the expected burn.
-static double workdayProgress(const QVariantMap &window, int workDays) {
-    if (workDays <= 0) return -1;
-    const auto minutes = window.value("minutes").toInt();
-    if (minutes < 7 * 24 * 60) return -1;
-    const auto resetsAt = window.value("resetsAt").toString();
-    const auto reset = QDateTime::fromString(resetsAt, Qt::ISODate);
-    if (!reset.isValid()) return -1;
-    const auto start = reset.addSecs(-minutes * 60);
-    const auto now = QDateTime::currentDateTimeUtc();
-    double total = 0;
-    double elapsed = 0;
-    for (auto day = start; day < reset; day = day.addDays(1)) {
-        if (static_cast<int>(day.date().dayOfWeek()) > workDays) continue;
-        total += 1;
-        if (day <= now) elapsed += 1;
-    }
-    if (total <= 0) return -1;
-    return qBound(0.0, elapsed / total * 100.0, 100.0);
-}
-
 void DesktopController::probe(QProcess &process, const QStringList &command, bool cost) {
     process.disconnect(this);
     auto output = std::make_shared<QByteArray>();
@@ -386,69 +275,6 @@ void DesktopController::probe(QProcess &process, const QStringList &command, boo
     emit changed();
 }
 
-QVariantMap DesktopController::overview() {
-    // The dashboard summary: how much is tracked, what is closest to its limit
-    // and when the next window resets.
-    QVariantMap summary{{"providers", 0}, {"highest", 0.0}, {"credits", QVariant()},
-        {"nextReset", ""}, {"nextLabel", ""}, {"spend", QVariant()}, {"tokens", 0}};
-    qint64 nextReset = 0;
-    double credits = 0;
-    bool hasCredits = false;
-    double highest = 0;
-    int providers = 0;
-    for (const auto &item : m_entries) {
-        const auto entry = item.toMap();
-        if (entry.value("failed").toBool()) continue;
-        providers += 1;
-        const auto creditsValue = entry.value("credits");
-        if (creditsValue.isValid() && !creditsValue.isNull()) {
-            credits += creditsValue.toDouble();
-            hasCredits = true;
-        }
-        for (const auto &windowItem : entry.value("windows").toList()) {
-            const auto window = windowItem.toMap();
-            highest = qMax(highest, 100.0 - qBound(0.0, window.value("remaining").toDouble(), 100.0));
-            const auto resetsAt = window.value("resetsAt").toString();
-            const auto reset = QDateTime::fromString(resetsAt, Qt::ISODate);
-            if (!resetsAt.isEmpty() && reset.isValid() && (nextReset == 0 || reset.toMSecsSinceEpoch() < nextReset)) {
-                nextReset = reset.toMSecsSinceEpoch();
-                // Keep the original string so the reset helper can parse it again.
-                summary["nextReset"] = resetsAt;
-                summary["nextLabel"] = window.value("label").toString();
-            }
-        }
-    }
-    double spend = 0;
-    bool hasSpend = false;
-    double tokens = 0;
-    for (const auto &item : m_spending) {
-        const auto row = item.toMap();
-        const auto month = row.value("month");
-        if (month.isValid() && !month.isNull()) {
-            spend += month.toDouble();
-            hasSpend = true;
-        }
-        const auto rowTokens = row.value("tokens");
-        if (rowTokens.isValid() && !rowTokens.isNull()) tokens += rowTokens.toDouble();
-    }
-    summary["providers"] = providers;
-    summary["highest"] = highest;
-    summary["credits"] = hasCredits ? QVariant(credits) : QVariant();
-    summary["spend"] = hasSpend ? QVariant(spend) : QVariant();
-    summary["tokens"] = tokens;
-    return summary;
-}
-
-QStringList DesktopController::trayLines() {
-    QStringList lines;
-    const auto value = call(m_usageModel, "providerLines",
-        {m_engine.toScriptValue(m_entries), m_settings.value("quotaDisplay").toString()});
-    if (value.isError() || !value.isArray()) return lines;
-    for (const auto &line : value.toVariant().toList())
-        lines.append(line.toString());
-    return lines;
-}
-
 void DesktopController::updateNotifications(const QVariantList &entries) {
     const auto result = call(m_noticeModel, "transition", {m_noticeState, m_engine.toScriptValue(entries),
         m_settings.value("notifyThreshold").toInt()});
@@ -471,8 +297,6 @@ void DesktopController::copySummary() {
 
 void DesktopController::showWindow(const QString &page) {
     if (page == "spending" && QDateTime::currentMSecsSinceEpoch() - m_costUpdated > 300000) refreshCosts();
-    // Agent sessions are opt-in: they are only listed when the tab is opened.
-    if (page == "sessions" && QDateTime::currentMSecsSinceEpoch() - m_sessionsUpdated > 60000) refreshSessions(true);
     if ((page == "usage" || page == "quick-view") && m_settings.value("refreshOnOpen").toBool()) refresh();
     emit windowRequested(page);
 }
@@ -492,7 +316,7 @@ void DesktopController::updateLabels() {
         call(m_usageModel, "barSegments", {rows, mode, options}).toVariant().toList());
 }
 
-QJsonObject DesktopController::snapshot() {
+QJsonObject DesktopController::snapshot() const {
     static const auto extraKeySalt = QUuid::createUuid().toRfc4122();
     QJsonArray compact;
     for (const auto &entry : m_entries) {
@@ -511,11 +335,6 @@ QJsonObject DesktopController::snapshot() {
             window["displayValue"] = m_settings.value("quotaDisplay") == "used" ? 100 - remaining : remaining;
             window["displaySuffix"] = m_settings.value("quotaDisplay") == "used" ? "used" : "left";
             window["warning"] = m_settings.value("warningColors").toBool() && remaining <= m_settings.value("notifyThreshold").toInt();
-            // The macOS app projects the usage at reset and marks the working-day
-            // progress of a weekly window; both are derived from the window itself.
-            const auto projection = projectedUsage(window);
-            window["projected"] = projection;
-            window["workdayPercent"] = workdayProgress(window, m_settings.value("weeklyProgressWorkDays").toInt());
             // This model contains no identity; display fields keep adapters consistent with native windows.
             window["resetText"] = call(m_usageModel, "resetText",
                 {window.value("resetsAt").toString(), double(QDateTime::currentMSecsSinceEpoch()), m_settings.value("resetDisplay").toString()}).toString();
@@ -533,18 +352,6 @@ QJsonObject DesktopController::snapshot() {
             {"extraUsage", QJsonValue::fromVariant(row.value("extraUsage"))},
             {"resetCredits", QJsonValue::fromVariant(row.value("resetCredits"))}});
     }
-    QJsonArray sessions;
-    for (const auto &item : m_sessions) {
-        const auto session = item.toMap();
-        // Session rows carry project names and paths, never account identity.
-        sessions.append(QJsonObject{{"id", session.value("id").toString()},
-            {"provider", session.value("provider").toString()},
-            {"state", session.value("state").toString()},
-            {"project", session.value("project").toString()},
-            {"cwd", session.value("cwd").toString()},
-            {"pid", session.value("pid").toInt()},
-            {"lastActivity", session.value("lastActivity").toString()}});
-    }
     QJsonArray spending;
     for (const auto &item : m_spending) {
         const auto row = item.toMap();
@@ -556,10 +363,7 @@ QJsonObject DesktopController::snapshot() {
             {"error", row.value("error").toString()}});
     }
     return {{"schemaVersion", 1}, {"pid", QCoreApplication::applicationPid()}, {"summary", m_summary}, {"barEntries", m_barEntries},
-        {"entries", compact}, {"sessions", sessions}, {"sessionsError", m_sessionsError},
-        {"trayLines", QJsonArray::fromStringList(trayLines())}, {"overview", QJsonObject::fromVariantMap(overview())},
-        {"trayIconSource", m_settings.value("trayIconSource").toString()}, {"overview", QJsonObject::fromVariantMap(overview())},
-        {"trayIconSource", m_settings.value("trayIconSource").toString()}, {"quotaDisplay", m_settings.value("quotaDisplay").toString()}, {"busy", busy()}, {"stale", stale()}, {"error", m_error},
+        {"entries", compact}, {"quotaDisplay", m_settings.value("quotaDisplay").toString()}, {"busy", busy()}, {"stale", stale()}, {"error", m_error},
         {"updated", updated()}, {"costBusy", costBusy()}, {"costProviders", m_spending.size()}, {"costError", m_costError}, {"spending", spending}};
 }
 
@@ -597,9 +401,7 @@ bool DesktopController::listen(const QString &socketPath) {
                     response = {{"ok", ok}, {"enabled", launchAtLogin()}};
                 }
                 else if (command == "refresh") { refresh(); refreshCosts(); }
-                else if (command == "refresh-sessions") { refreshSessions(true); response = {{"ok", true}}; }
-                else if (command == "refresh-sessions") { refreshSessions(true); response = {{"ok", true}}; }
-                else if (command == "settings" || command == "usage" || command == "spending" || command == "sessions" || command == "quick-view") showWindow(command);
+                else if (command == "settings" || command == "usage" || command == "spending" || command == "quick-view") showWindow(command);
                 else if (command == "configure" && request.value("settings").isObject()) {
                     const bool ok = saveSettings(request.value("settings").toObject().toVariantMap());
                     response = {{"ok", ok}, {"error", m_configError}};
