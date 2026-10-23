@@ -49,39 +49,44 @@ Load command 11
         self.assertEqual(release.metadata(), ('1.2.3', '12'))
         self.assertEqual(release.notes('1.2.3'), '- A real change.\n')
 
-    def test_appcast_description_renders_release_markdown_as_wrapping_html(self):
+    def test_appcast_description_uses_native_markdown_and_links_github_references(self):
         (self.root / 'CHANGELOG.md').write_text(
             '# Changelog\n\n## 1.2.3 - 2026-01-01\n\n'
             '### Highlights\n\n'
             'A paragraph with **bold text**, `inline code`, and '
-            '[release docs](https://example.com/notes?a=1&b=2).\n\n'
-            '- Keep <literal> text & ampersands safe.\n'
-            '- Long release notes stay in ordinary list items so Sparkle can wrap them.\n')
-
-        description = release.appcast_description('1.2.3')
-
-        self.assertIn('<h2>BlackBar 1.2.3</h2>', description)
-        self.assertIn('<h3>Highlights</h3>', description)
-        self.assertIn('<p>A paragraph with <strong>bold text</strong>, <code>inline code</code>, and '
-                      '<a href="https://example.com/notes?a=1&amp;b=2">release docs</a>.</p>', description)
-        self.assertIn('<ul><li>Keep &lt;literal&gt; text &amp; ampersands safe.</li>', description)
-        self.assertIn('<li>Long release notes stay in ordinary list items so Sparkle can wrap them.</li></ul>', description)
-        self.assertNotIn('<pre>', description)
-        self.assertNotIn('###', description)
-        self.assertNotIn('`', description)
-
-    def test_changelog_inline_html_links_github_references(self):
-        rendered = release.changelog_inline_html(
+            '[release docs](https://example.com/notes?a=1&b=2).\n'
             'Fixes (#4736, #4723). Thanks @Andy115951 and @octo-user! '
-            'Keep `#12 @not-a-link` and mail@example.com as text.')
+            'Keep `#12 @not-a-link` and mail@example.com as text.\n\n'
+            '- Keep <literal> text & ampersands safe.\n'
+            '- Long release notes stay in ordinary list items so Sparkle can wrap them.\n'
+            '- Existing [#99](https://example.com/99) links are preserved.\n')
 
+        item = release.ET.Element('item')
+        description = release.add_appcast_description(item, '1.2.3')
+        serialized = release.ET.tostring(item, encoding='unicode')
+        parsed = release.ET.fromstring(serialized).find('description')
+
+        self.assertEqual(description.attrib[f'{{{release.SPARKLE}}}format'], 'markdown')
+        self.assertEqual(parsed.attrib[f'{{{release.SPARKLE}}}format'], 'markdown')
+        self.assertIn('## BlackBar 1.2.3\n\n### Highlights', parsed.text)
+        self.assertIn(
+            '**bold text**, `inline code`, and [release docs](https://example.com/notes?a=1&b=2).',
+            parsed.text)
+        self.assertIn('[#4736](https://github.com/steipete/CodexBar/issues/4736)', parsed.text)
+        self.assertIn('[@Andy115951](https://github.com/Andy115951)', parsed.text)
+        self.assertIn('[@octo-user](https://github.com/octo-user)', parsed.text)
+        self.assertIn('`#12 @not-a-link` and mail@example.com', parsed.text)
+        self.assertIn('[#99](https://example.com/99)', parsed.text)
+        self.assertIn('- Keep <literal> text & ampersands safe.', parsed.text)
+        self.assertIn('- Long release notes stay in ordinary list items so Sparkle can wrap them.', parsed.text)
+
+    def test_github_references_in_fenced_code_are_not_linked(self):
+        markdown = 'Example:\n\n```text\n#12 @example\n```\n\nSee #13 and @octo.'
         self.assertEqual(
-            rendered,
-            'Fixes (<a href="https://github.com/steipete/CodexBar/issues/4736">#4736</a>, '
-            '<a href="https://github.com/steipete/CodexBar/issues/4723">#4723</a>). Thanks '
-            '<a href="https://github.com/Andy115951">@Andy115951</a> and '
-            '<a href="https://github.com/octo-user">@octo-user</a>! '
-            'Keep <code>#12 @not-a-link</code> and mail@example.com as text.')
+            release.link_github_references(markdown),
+            'Example:\n\n```text\n#12 @example\n```\n\n'
+            'See [#13](https://github.com/steipete/CodexBar/issues/13) and '
+            '[@octo](https://github.com/octo).')
 
     def test_undated_changelog_is_rejected(self):
         (self.root / 'CHANGELOG.md').write_text('## 1.2.3 - Unreleased\n\n- Change.\n')

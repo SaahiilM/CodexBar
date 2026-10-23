@@ -4,7 +4,6 @@ import argparse
 import base64
 import datetime as dt
 import hashlib
-import html
 import json
 import os
 from pathlib import Path
@@ -81,79 +80,53 @@ def notes(version, dry=False):
     return (body or f'Dry-run build of {version}; no publication.') + '\n'
 
 
-INLINE_MARKDOWN = re.compile(
-    r'`([^`\n]+)`|\*\*(.+?)\*\*|\[([^\]\n]+)\]\(((?:https?://|mailto:)[^()\s]+)\)'
-    r'|(?<![\w/])#(\d+)\b|(?<![\w.+-])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))(?![A-Za-z0-9-])'
+MARKDOWN_REFERENCE = re.compile(
+    r'(?P<code>`+[^`\n]*`+)|(?P<link>\[[^\]\n]*\]\([^\n)]*\))'
+    r'|(?P<issue>(?<![\w/])#(?P<number>\d+)\b)'
+    r'|(?P<user>(?<![\w.+-])@(?P<username>[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)(?![A-Za-z0-9-]))'
 )
 
 
-def changelog_inline_html(text):
-    """Render the inline Markdown constructs used in CHANGELOG.md as safe HTML."""
-    rendered = []
-    offset = 0
-    for match in INLINE_MARKDOWN.finditer(text):
-        rendered.append(html.escape(text[offset:match.start()]))
-        if match.group(1) is not None:
-            rendered.append(f'<code>{html.escape(match.group(1))}</code>')
-        elif match.group(2) is not None:
-            rendered.append(f'<strong>{changelog_inline_html(match.group(2))}</strong>')
-        elif match.group(3) is not None:
-            label, url = match.group(3), match.group(4)
-            rendered.append(
-                f'<a href="{html.escape(url, quote=True)}">{changelog_inline_html(label)}</a>')
-        elif match.group(5) is not None:
-            number = match.group(5)
-            url = f'https://github.com/{CONFIG["repository"]}/issues/{number}'
-            rendered.append(f'<a href="{url}">#{number}</a>')
-        else:
-            username = match.group(6)
-            rendered.append(f'<a href="https://github.com/{username}">@{username}</a>')
-        offset = match.end()
-    rendered.append(html.escape(text[offset:]))
-    return ''.join(rendered)
+def link_github_references(markdown):
+    """Link GitHub references while leaving existing links and code untouched."""
+    linked_lines = []
+    code_fence = None
+    for line in markdown.splitlines(keepends=True):
+        fence = re.match(r'^ {0,3}(`{3,}|~{3,})', line)
+        if code_fence is not None:
+            linked_lines.append(line)
+            if fence and fence.group(1)[0] == code_fence[0] and len(fence.group(1)) >= len(code_fence):
+                code_fence = None
+            continue
+        if fence:
+            code_fence = fence.group(1)
+            linked_lines.append(line)
+            continue
+
+        def link_reference(match):
+            if match.group('code') or match.group('link'):
+                return match.group()
+            if match.group('number'):
+                number = match.group('number')
+                return f'[#{number}](https://github.com/{CONFIG["repository"]}/issues/{number})'
+            username = match.group('username')
+            return f'[@{username}](https://github.com/{username})'
+
+        linked_lines.append(MARKDOWN_REFERENCE.sub(link_reference, line))
+    return ''.join(linked_lines)
 
 
-def changelog_markdown_html(markdown):
-    """Render the headings, paragraphs, and lists used by release changelog entries."""
-    blocks = []
-    paragraph = []
-    list_items = []
-
-    def flush_paragraph():
-        if paragraph:
-            blocks.append(f'<p>{changelog_inline_html(" ".join(paragraph))}</p>')
-            paragraph.clear()
-
-    def flush_list():
-        if list_items:
-            items = ''.join(f'<li>{item}</li>' for item in list_items)
-            blocks.append(f'<ul>{items}</ul>')
-            list_items.clear()
-
-    for line in markdown.splitlines():
-        if not line.strip():
-            flush_paragraph()
-            flush_list()
-        elif line.startswith('### '):
-            flush_paragraph()
-            flush_list()
-            blocks.append(f'<h3>{changelog_inline_html(line[4:].strip())}</h3>')
-        elif line.startswith('- '):
-            flush_paragraph()
-            list_items.append(changelog_inline_html(line[2:].strip()))
-        else:
-            flush_list()
-            paragraph.append(line.strip())
-
-    flush_paragraph()
-    flush_list()
-    return '\n'.join(blocks)
+def appcast_markdown(version, dry=False):
+    """Return the release notes as Markdown for Sparkle's native renderer."""
+    title = f'## {CONFIG["app"]} {version}'
+    return f'{title}\n\n{link_github_references(notes(version, dry))}'
 
 
-def appcast_description(version, dry=False):
-    """Return HTML for Sparkle's description field from the version's Markdown notes."""
-    title = html.escape(f'{CONFIG["app"]} {version}')
-    return f'<h2>{title}</h2>\n{changelog_markdown_html(notes(version, dry))}'
+def add_appcast_description(item, version, dry=False):
+    """Add a Sparkle description marked for native Markdown rendering."""
+    description = ET.SubElement(item, 'description', {f'{{{SPARKLE}}}format': 'markdown'})
+    description.text = appcast_markdown(version, dry)
+    return description
 
 
 def require_ci(sha):
@@ -290,7 +263,7 @@ if data.count == 32 {
     ET.SubElement(item, f'{{{SPARKLE}}}minimumSystemVersion').text = CONFIG['minimum_macos']
     if CONFIG['architectures'] == ['arm64']:
         ET.SubElement(item, f'{{{SPARKLE}}}hardwareRequirements').text = 'arm64'
-    ET.SubElement(item, 'description').text = appcast_description(version, os.environ.get('DRY_RUN') == 'true')
+    add_appcast_description(item, version, os.environ.get('DRY_RUN') == 'true')
     ET.SubElement(item, 'enclosure', {'url': f'https://github.com/{CONFIG["repository"]}/releases/download/v{version}/{archive.name}', 'length': str(archive.stat().st_size), 'type': 'application/octet-stream', f'{{{SPARKLE}}}edSignature': signature})
     channel.insert(0, item)
     ET.indent(tree)
