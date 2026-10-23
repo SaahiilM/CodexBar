@@ -49,6 +49,40 @@ Load command 11
         self.assertEqual(release.metadata(), ('1.2.3', '12'))
         self.assertEqual(release.notes('1.2.3'), '- A real change.\n')
 
+    def test_appcast_description_renders_release_markdown_as_wrapping_html(self):
+        (self.root / 'CHANGELOG.md').write_text(
+            '# Changelog\n\n## 1.2.3 - 2026-01-01\n\n'
+            '### Highlights\n\n'
+            'A paragraph with **bold text**, `inline code`, and '
+            '[release docs](https://example.com/notes?a=1&b=2).\n\n'
+            '- Keep <literal> text & ampersands safe.\n'
+            '- Long release notes stay in ordinary list items so Sparkle can wrap them.\n')
+
+        description = release.appcast_description('1.2.3')
+
+        self.assertIn('<h2>BlackBar 1.2.3</h2>', description)
+        self.assertIn('<h3>Highlights</h3>', description)
+        self.assertIn('<p>A paragraph with <strong>bold text</strong>, <code>inline code</code>, and '
+                      '<a href="https://example.com/notes?a=1&amp;b=2">release docs</a>.</p>', description)
+        self.assertIn('<ul><li>Keep &lt;literal&gt; text &amp; ampersands safe.</li>', description)
+        self.assertIn('<li>Long release notes stay in ordinary list items so Sparkle can wrap them.</li></ul>', description)
+        self.assertNotIn('<pre>', description)
+        self.assertNotIn('###', description)
+        self.assertNotIn('`', description)
+
+    def test_changelog_inline_html_links_github_references(self):
+        rendered = release.changelog_inline_html(
+            'Fixes (#4736, #4723). Thanks @Andy115951 and @octo-user! '
+            'Keep `#12 @not-a-link` and mail@example.com as text.')
+
+        self.assertEqual(
+            rendered,
+            'Fixes (<a href="https://github.com/steipete/CodexBar/issues/4736">#4736</a>, '
+            '<a href="https://github.com/steipete/CodexBar/issues/4723">#4723</a>). Thanks '
+            '<a href="https://github.com/Andy115951">@Andy115951</a> and '
+            '<a href="https://github.com/octo-user">@octo-user</a>! '
+            'Keep <code>#12 @not-a-link</code> and mail@example.com as text.')
+
     def test_undated_changelog_is_rejected(self):
         (self.root / 'CHANGELOG.md').write_text('## 1.2.3 - Unreleased\n\n- Change.\n')
         with self.assertRaises(AssertionError):

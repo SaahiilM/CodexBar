@@ -81,6 +81,81 @@ def notes(version, dry=False):
     return (body or f'Dry-run build of {version}; no publication.') + '\n'
 
 
+INLINE_MARKDOWN = re.compile(
+    r'`([^`\n]+)`|\*\*(.+?)\*\*|\[([^\]\n]+)\]\(((?:https?://|mailto:)[^()\s]+)\)'
+    r'|(?<![\w/])#(\d+)\b|(?<![\w.+-])@([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))(?![A-Za-z0-9-])'
+)
+
+
+def changelog_inline_html(text):
+    """Render the inline Markdown constructs used in CHANGELOG.md as safe HTML."""
+    rendered = []
+    offset = 0
+    for match in INLINE_MARKDOWN.finditer(text):
+        rendered.append(html.escape(text[offset:match.start()]))
+        if match.group(1) is not None:
+            rendered.append(f'<code>{html.escape(match.group(1))}</code>')
+        elif match.group(2) is not None:
+            rendered.append(f'<strong>{changelog_inline_html(match.group(2))}</strong>')
+        elif match.group(3) is not None:
+            label, url = match.group(3), match.group(4)
+            rendered.append(
+                f'<a href="{html.escape(url, quote=True)}">{changelog_inline_html(label)}</a>')
+        elif match.group(5) is not None:
+            number = match.group(5)
+            url = f'https://github.com/{CONFIG["repository"]}/issues/{number}'
+            rendered.append(f'<a href="{url}">#{number}</a>')
+        else:
+            username = match.group(6)
+            rendered.append(f'<a href="https://github.com/{username}">@{username}</a>')
+        offset = match.end()
+    rendered.append(html.escape(text[offset:]))
+    return ''.join(rendered)
+
+
+def changelog_markdown_html(markdown):
+    """Render the headings, paragraphs, and lists used by release changelog entries."""
+    blocks = []
+    paragraph = []
+    list_items = []
+
+    def flush_paragraph():
+        if paragraph:
+            blocks.append(f'<p>{changelog_inline_html(" ".join(paragraph))}</p>')
+            paragraph.clear()
+
+    def flush_list():
+        if list_items:
+            items = ''.join(f'<li>{item}</li>' for item in list_items)
+            blocks.append(f'<ul>{items}</ul>')
+            list_items.clear()
+
+    for line in markdown.splitlines():
+        if not line.strip():
+            flush_paragraph()
+            flush_list()
+        elif line.startswith('### '):
+            flush_paragraph()
+            flush_list()
+            blocks.append(f'<h3>{changelog_inline_html(line[4:].strip())}</h3>')
+        elif line.startswith('- '):
+            flush_paragraph()
+            list_items.append(changelog_inline_html(line[2:].strip()))
+        else:
+            flush_list()
+            paragraph.append(line.strip())
+
+    flush_paragraph()
+    flush_list()
+    return '\n'.join(blocks)
+
+
+def appcast_description(version, dry=False):
+    """Return HTML for Sparkle's description field from the version's Markdown notes."""
+    title = html.escape(f'{CONFIG["app"]} {version}')
+    return f'<h2>{title}</h2>\n{changelog_markdown_html(notes(version, dry))}'
+
+
 def require_ci(sha):
     response = api(f'repos/{CONFIG["repository"]}/actions/workflows/ci.yml/runs?event=push&head_sha={sha}&per_page=50')
     runs = [r for r in response['workflow_runs'] if r['head_sha'] == sha and r['event'] == 'push' and r['head_branch'] == 'main']
@@ -215,7 +290,7 @@ if data.count == 32 {
     ET.SubElement(item, f'{{{SPARKLE}}}minimumSystemVersion').text = CONFIG['minimum_macos']
     if CONFIG['architectures'] == ['arm64']:
         ET.SubElement(item, f'{{{SPARKLE}}}hardwareRequirements').text = 'arm64'
-    ET.SubElement(item, 'description').text = '<pre>' + html.escape(notes(version, os.environ.get('DRY_RUN') == 'true')) + '</pre>'
+    ET.SubElement(item, 'description').text = appcast_description(version, os.environ.get('DRY_RUN') == 'true')
     ET.SubElement(item, 'enclosure', {'url': f'https://github.com/{CONFIG["repository"]}/releases/download/v{version}/{archive.name}', 'length': str(archive.stat().st_size), 'type': 'application/octet-stream', f'{{{SPARKLE}}}edSignature': signature})
     channel.insert(0, item)
     ET.indent(tree)
